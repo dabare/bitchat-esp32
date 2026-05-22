@@ -18,7 +18,7 @@ Use `LIGHT_ON_LEVEL = LOW` for active-low relay modules.
 
 ## Flash And Run
 
-1. Install the `bitchat_esp32` library.
+1. Install the `BitChat ESP32` library.
 2. Open `File > Examples > BitChat ESP32 > PrivateLightSwitch`.
 3. Select your ESP32 board and port.
 4. Upload.

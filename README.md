@@ -1,29 +1,28 @@
 # BitChat ESP32 Arduino Library
 
-This folder is a complete Arduino library for running a BitChat peer on ESP32. It lets an ESP32 join nearby BitChat iOS and Android clients over BLE mesh, send signed public messages, send and receive encrypted private messages, and expose the protocol through either Serial Monitor or a small Arduino callback API.
+This repository is a complete Arduino library for running a BitChat peer on ESP32. It lets an ESP32 join nearby BitChat iOS and Android clients over BLE mesh, send signed public messages, send and receive encrypted private messages, and expose the protocol through either Serial Monitor or a small Arduino callback API.
 
-The library root is `bitchat_esp32/`:
+The repository root is the Arduino library root:
 
 ```text
-bitchat_esp32/
-  library.properties
-  keywords.txt
-  LICENSE
-  NOTICE.md
-  src/
-    BitChatESP32.h
-    BitChatESP32.cpp
-    BitChatESP32Config.h
-  examples/
-    SerialChat/
-      SerialChat.ino
-      README.md
-    PrivateLightSwitch/
-      PrivateLightSwitch.ino
-      README.md
-    TemperatureBroadcaster/
-      TemperatureBroadcaster.ino
-      README.md
+library.properties
+keywords.txt
+LICENSE
+NOTICE.md
+src/
+  BitChatESP32.h
+  BitChatESP32.cpp
+  BitChatESP32Config.h
+examples/
+  SerialChat/
+    SerialChat.ino
+    README.md
+  PrivateLightSwitch/
+    PrivateLightSwitch.ino
+    README.md
+  TemperatureBroadcaster/
+    TemperatureBroadcaster.ino
+    README.md
 ```
 
 ## What Works
@@ -106,15 +105,15 @@ void loop() {
 
 Use this when you want to install this library without moving files manually.
 
-1. Compress only the `bitchat_esp32` folder as a ZIP file.
-2. Confirm the ZIP contains this layout at its library root:
+1. Compress this repository folder as a ZIP file.
+2. Confirm the ZIP contains this layout inside its top-level folder:
 
    ```text
-   bitchat_esp32/library.properties
-   bitchat_esp32/src/BitChatESP32.h
-   bitchat_esp32/examples/SerialChat/SerialChat.ino
-   bitchat_esp32/LICENSE
-   bitchat_esp32/README.md
+   library.properties
+   src/BitChatESP32.h
+   examples/SerialChat/SerialChat.ino
+   LICENSE
+   README.md
    ```
 
 3. In Arduino IDE, choose `Sketch > Include Library > Add .ZIP Library...`.
@@ -122,28 +121,28 @@ Use this when you want to install this library without moving files manually.
 5. Restart Arduino IDE if the examples do not appear immediately.
 6. Open `File > Examples > BitChat ESP32 > SerialChat`.
 
-Do not ZIP the whole workspace if it creates an extra folder above `bitchat_esp32`. Arduino IDE must see `library.properties`, `src/`, and `examples/` inside the installed library folder.
+Do not ZIP a parent workspace if it creates an extra folder above this library. Arduino IDE must see `library.properties`, `src/`, and `examples/` inside the installed library folder.
 
 ### Arduino IDE Manual Install
 
-Copy the `bitchat_esp32` folder into your Arduino libraries folder:
+Copy this repository folder into your Arduino libraries folder:
 
 ```text
-~/Documents/Arduino/libraries/bitchat_esp32
+~/Documents/Arduino/libraries/bitchat-esp32
 ```
 
 The installed layout should look like:
 
 ```text
-~/Documents/Arduino/libraries/bitchat_esp32/library.properties
-~/Documents/Arduino/libraries/bitchat_esp32/src/BitChatESP32.h
-~/Documents/Arduino/libraries/bitchat_esp32/examples/SerialChat/SerialChat.ino
+~/Documents/Arduino/libraries/bitchat-esp32/library.properties
+~/Documents/Arduino/libraries/bitchat-esp32/src/BitChatESP32.h
+~/Documents/Arduino/libraries/bitchat-esp32/examples/SerialChat/SerialChat.ino
 ```
 
 Avoid this incorrect nested layout:
 
 ```text
-~/Documents/Arduino/libraries/bitchat_esp32/bitchat_esp32/library.properties
+~/Documents/Arduino/libraries/bitchat-esp32/bitchat-esp32/library.properties
 ```
 
 Restart Arduino IDE, then open:
@@ -157,13 +156,13 @@ File > Examples > BitChat ESP32 > SerialChat
 When compiling from this workspace, pass the library folder with `--libraries`:
 
 ```sh
-'/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli' compile --fqbn esp32:esp32:esp32c3 --libraries bitchat_esp32 bitchat_esp32/examples/SerialChat
+'/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli' compile --fqbn esp32:esp32:esp32c3 --libraries . examples/SerialChat
 ```
 
 For a generic classic ESP32:
 
 ```sh
-'/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli' compile --fqbn esp32:esp32:esp32 --libraries bitchat_esp32 bitchat_esp32/examples/SerialChat
+'/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli' compile --fqbn esp32:esp32:esp32 --libraries . examples/SerialChat
 ```
 
 The quotes are needed because the Arduino IDE path contains spaces.
@@ -182,16 +181,40 @@ Using Arduino IDE:
 Using `arduino-cli` from this workspace:
 
 ```sh
-'/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli' upload --fqbn esp32:esp32:esp32c3 --port /dev/cu.usbmodemXXXX --libraries bitchat_esp32 bitchat_esp32/examples/SerialChat
+'/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli' upload --fqbn esp32:esp32:esp32c3 --port /dev/cu.usbmodemXXXX --libraries . examples/SerialChat
 ```
 
 Replace `/dev/cu.usbmodemXXXX` with your board port.
 
 ## Publishing A Release
 
-You do not need to publish a release for your own boards. ZIP install, manual install, or the local `--libraries bitchat_esp32` workflow is enough for development and private use.
+You do not need to publish a release for your own boards. ZIP install, manual install, or the local `--libraries .` workflow is enough for development and private use.
 
 Publish a release when you want other users to install a stable ZIP, when you want reproducible product builds, or when you want the library added to Arduino Library Manager.
+
+### Arduino IDE Release ZIP
+
+Yes, you can upload a release ZIP so users can install the library directly in Arduino IDE.
+
+Create the ZIP from this repository root:
+
+```sh
+./scripts/package-release.sh
+```
+
+The script creates:
+
+```text
+dist/BitChat_ESP32-VERSION.zip
+```
+
+Upload that ZIP as a GitHub Release asset. Users install it with:
+
+```text
+Sketch > Include Library > Add .ZIP Library...
+```
+
+The ZIP contains a single top-level `BitChat_ESP32/` folder with `library.properties`, `src/`, `examples/`, `LICENSE`, `NOTICE.md`, `README.md`, and `docs/`. It does not include local upstream reference checkouts, `.git`, build output, or macOS metadata.
 
 For a simple GitHub release:
 
@@ -200,11 +223,12 @@ For a simple GitHub release:
 3. Compile all examples for the boards you support.
 4. Create a Git tag matching the version, for example `0.3.1`.
 5. Create a GitHub Release from that tag.
-6. Publish or attach a ZIP where the top-level library folder is `bitchat_esp32`.
+6. Run `./scripts/package-release.sh`.
+7. Attach `dist/BitChat_ESP32-VERSION.zip` to the release.
 
 For Arduino Library Manager:
 
-1. Use a public GitHub repository where `library.properties` is at the repository root. If this workspace has other upstream folders beside `bitchat_esp32`, create a separate clean repository for the Arduino library.
+1. Use a public GitHub repository where `library.properties` is at the repository root.
 2. Keep the standard Arduino layout: `src/`, `examples/`, `library.properties`, `LICENSE`, and `README.md`.
 3. Confirm `library.properties` has a compliant `name`, semantic `version`, `architectures=esp32`, and `includes=BitChatESP32.h`.
 4. Create a release tag for the version. Arduino Library Manager indexes released/tagged versions, not just a branch.
@@ -551,7 +575,7 @@ If `nimble_host` stack overflow returns, audit any new callback code first.
 Current verified example build results:
 
 ```text
-SerialChat esp32c3:              858513 bytes (65%); globals 23376 bytes (7%).
+SerialChat esp32c3:              858529 bytes (65%); globals 23376 bytes (7%).
 SerialChat esp32:               1265567 bytes (96%); globals 46760 bytes (14%).
 PrivateLightSwitch esp32c3:      884699 bytes (67%); globals 24476 bytes (7%).
 PrivateLightSwitch esp32:       1271175 bytes (96%); globals 46768 bytes (14%).

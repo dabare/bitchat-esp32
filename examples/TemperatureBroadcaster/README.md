@@ -14,7 +14,7 @@ The default sample is synthetic so the example works without extra hardware. To 
 
 ## Flash And Run
 
-1. Install the `bitchat_esp32` library.
+1. Install the `BitChat ESP32` library.
 2. Open `File > Examples > BitChat ESP32 > TemperatureBroadcaster`.
 3. Select your ESP32 board and port.
 4. Upload.

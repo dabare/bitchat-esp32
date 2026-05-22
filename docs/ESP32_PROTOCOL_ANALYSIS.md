@@ -1,6 +1,6 @@
 # BitChat Protocol Notes For ESP32 Arduino
 
-This workspace contains the upstream iOS/macOS implementation in `bitchat/` and Android in `bitchat-android/`. There was no existing Arduino/ESP32 implementation, so `bitchat_esp32/` is now an Arduino library that ports the protocol pieces needed for public and private mesh chat. The serial-controlled reference sketch is `bitchat_esp32/examples/SerialChat/SerialChat.ino`.
+This workspace keeps upstream iOS/macOS and Android reference checkouts under `upstream_references/`, which is ignored by Git. There was no existing Arduino/ESP32 implementation, so this repository root is now an Arduino library that ports the protocol pieces needed for public and private mesh chat. The serial-controlled reference sketch is `examples/SerialChat/SerialChat.ino`.
 
 ## Transport
 
@@ -15,8 +15,8 @@ This workspace contains the upstream iOS/macOS implementation in `bitchat/` and 
 
 The current packet format lives in:
 
-- iOS: `bitchat/localPackages/BitFoundation/Sources/BitFoundation/BinaryProtocol.swift`
-- Android: `bitchat-android/app/src/main/java/com/bitchat/android/protocol/BinaryProtocol.kt`
+- iOS: `upstream_references/bitchat-ios/localPackages/BitFoundation/Sources/BitFoundation/BinaryProtocol.swift`
+- Android: `upstream_references/bitchat-android/app/src/main/java/com/bitchat/android/protocol/BinaryProtocol.kt`
 
 v1 packets use:
 
@@ -66,7 +66,7 @@ Important signing detail: upstream signs `packet.toBinaryDataForSigning()`, whic
 
 ## Current ESP32 Scope
 
-`bitchat_esp32/` currently supports:
+The ESP32 Arduino library currently supports:
 
 - Mainnet BLE service by default.
 - Switchable iOS debug/testnet UUID in `src/BitChatESP32Config.h` with `#define BITCHAT_USE_TESTNET 1`.
@@ -132,13 +132,13 @@ With `/debug on`, the library prints early boot breadcrumbs before BLE startup. 
 Verified with:
 
 ```sh
-/Applications/Arduino\ IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli compile --fqbn esp32:esp32:esp32 --libraries bitchat_esp32 bitchat_esp32/examples/SerialChat
-/Applications/Arduino\ IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli compile --fqbn esp32:esp32:esp32c3 --libraries bitchat_esp32 bitchat_esp32/examples/SerialChat
+/Applications/Arduino\ IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli compile --fqbn esp32:esp32:esp32 --libraries . examples/SerialChat
+/Applications/Arduino\ IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli compile --fqbn esp32:esp32:esp32c3 --libraries . examples/SerialChat
 ```
 
 Result:
 
 ```text
 esp32:   Sketch uses 1265567 bytes (96%); globals use 46760 bytes (14%).
-esp32c3: Sketch uses 858513 bytes (65%); globals use 23376 bytes (7%).
+esp32c3: Sketch uses 858529 bytes (65%); globals use 23376 bytes (7%).
 ```

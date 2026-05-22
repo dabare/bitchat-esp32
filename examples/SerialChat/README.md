@@ -18,7 +18,7 @@ void loop() {
 
 ## Flash
 
-1. Install the `bitchat_esp32` library.
+1. Install the `BitChat ESP32` library.
 2. Open `File > Examples > BitChat ESP32 > SerialChat`.
 3. Select your ESP32 board and port.
 4. For ESP32-C3/S3 native USB boards, enable `USB CDC On Boot`.
