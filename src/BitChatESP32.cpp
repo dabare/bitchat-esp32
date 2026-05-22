@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 /*
   BitChat ESP32 Arduino port.
 
@@ -16,7 +17,9 @@
   BitChat apps reject unsigned peers, so Ed25519 signing is mandatory.
 */
 
-#include <Arduino.h>
+#include "BitChatESP32.h"
+#include "BitChatESP32Config.h"
+
 #include <Preferences.h>
 #include <sodium.h>
 #include <new>
@@ -32,9 +35,6 @@
 #include <BLE2902.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
-
-// Set to 1 when testing against a DEBUG iOS build. Android and release iOS use mainnet.
-#define BITCHAT_USE_TESTNET 0
 
 #if BITCHAT_USE_TESTNET
 static const char *BITCHAT_SERVICE_UUID = "F47B5E2D-4A9E-4C5A-9B3F-8E1D2C3A4B5A";
@@ -92,6 +92,10 @@ static int16_t timeZoneOffsetMinutes = 0;
 static bool debugMode = false;
 static bool aliveMode = false;
 static bool quietMode = false;
+static bool serialOutputEnabled = true;
+static bool serialCommandsEnabled = true;
+static bool timeSetThisBoot = false;
+static bool timeLoadedFromPrefs = false;
 
 static BLECharacteristic *localCharacteristic = nullptr;
 static BLEScan *bleScan = nullptr;
@@ -212,6 +216,9 @@ static std::vector<PeerInfo> peers;
 static NoiseSession noiseSessions[MAX_NOISE_SESSIONS];
 static PendingNoisePayload pendingNoisePayloads[MAX_PENDING_NOISE_PAYLOADS];
 static TrackedPrivateMessage trackedPrivateMessages[MAX_TRACKED_PRIVATE_MESSAGES];
+static BitChatPublicMessageCallback publicMessageCallback = nullptr;
+static BitChatPrivateMessageCallback privateMessageCallback = nullptr;
+static BitChatPeerCallback peerCallback = nullptr;
 
 static void appendU16BE(std::vector<uint8_t> &out, uint16_t value) {
   out.push_back((uint8_t)((value >> 8) & 0xFF));
@@ -278,6 +285,7 @@ static String timeOf(uint64_t epochMs) {
 }
 
 static void debugPrintf(const char *fmt, ...) {
+  if (!serialOutputEnabled) return;
   if (!debugMode) return;
   char buf[256];
   va_list args;
@@ -288,6 +296,7 @@ static void debugPrintf(const char *fmt, ...) {
 }
 
 static void systemPrintf(const char *fmt, ...) {
+  if (!serialOutputEnabled) return;
   if (quietMode) return;
   char buf[256];
   va_list args;
@@ -298,6 +307,7 @@ static void systemPrintf(const char *fmt, ...) {
 }
 
 static void errorPrintf(const char *fmt, ...) {
+  if (!serialOutputEnabled) return;
   char buf[256];
   va_list args;
   va_start(args, fmt);
@@ -307,6 +317,7 @@ static void errorPrintf(const char *fmt, ...) {
 }
 
 static void chatPrintf(uint64_t timestampMs, const char *sender, const char *content) {
+  if (!serialOutputEnabled) return;
   Serial.printf("[%s] %s: %s\n", timeOf(timestampMs).c_str(), sender, content);
 }
 
@@ -342,6 +353,7 @@ static uint64_t nowMs() {
 
 static void setEpochMs(uint64_t epochMs) {
   timeBaseMs = epochMs - millis();
+  timeSetThisBoot = true;
   prefs.putULong64("timeBaseMs", timeBaseMs);
 }
 
@@ -384,8 +396,10 @@ static bool loadOrCreateIdentity() {
   uint64_t storedBase = prefs.getULong64("timeBaseMs", 0);
   if (storedBase != 0) {
     timeBaseMs = storedBase;
+    timeLoadedFromPrefs = true;
   } else {
     timeBaseMs = compileEpochSeconds() * 1000ULL;
+    timeLoadedFromPrefs = false;
   }
 
   derivePeerID();
@@ -602,6 +616,7 @@ static void waitForSerialMonitor() {
 }
 
 static void bootLog(const char *message) {
+  if (!serialOutputEnabled) return;
   if (!debugMode) return;
   Serial.printf("[boot %lu ms] %s\n", (unsigned long)millis(), message);
   Serial.flush();
@@ -693,24 +708,25 @@ static void sendAnnounce(bool force) {
   sendAnnouncePacket(force, MESSAGE_TTL, false, -1, true);
 }
 
-static void sendPublicMessage(const String &line) {
-  if (line.length() == 0) return;
+static bool sendPublicMessage(const String &line) {
+  if (line.length() == 0) return false;
   if (line.length() > MAX_PUBLIC_TEXT_BYTES) {
     errorPrintf("message too long (%u > %u bytes); fragmentation is not implemented yet\n",
                 (unsigned)line.length(), (unsigned)MAX_PUBLIC_TEXT_BYTES);
-    return;
+    return false;
   }
 
   std::vector<uint8_t> payload((const uint8_t *)line.c_str(), (const uint8_t *)line.c_str() + line.length());
   Packet packet = makeBasePacket(MSG_MESSAGE, payload);
   if (!signPacket(packet)) {
     errorPrintf("message signing failed\n");
-    return;
+    return false;
   }
   std::vector<uint8_t> frame = encodePacket(packet, false);
   sendFrame(frame);
   sentMessageCounter++;
   chatPrintf(packet.timestamp, nickname.c_str(), line.c_str());
+  return true;
 }
 
 static bool decodeAnnouncement(const std::vector<uint8_t> &payload, DecodedAnnouncement &out) {
@@ -742,13 +758,43 @@ static PeerInfo *findPeer(const uint8_t *peerID) {
   return nullptr;
 }
 
+static BitChatPeer makePeerSnapshot(const PeerInfo &peer) {
+  BitChatPeer out;
+  out.id = hexOf(peer.peerID, SENDER_ID_SIZE);
+  out.nick = peer.nick;
+  out.lastSeenMs = peer.lastSeenMs;
+  return out;
+}
+
+static BitChatPeer makePeerSnapshot(const uint8_t *peerID) {
+  PeerInfo *peer = findPeer(peerID);
+  if (peer != nullptr) return makePeerSnapshot(*peer);
+
+  BitChatPeer out;
+  out.id = hexOf(peerID, SENDER_ID_SIZE);
+  out.nick = out.id;
+  out.lastSeenMs = 0;
+  return out;
+}
+
 static String peerDisplayName(const uint8_t *peerID) {
   PeerInfo *peer = findPeer(peerID);
   if (peer != nullptr && peer->nick.length() > 0) return peer->nick;
   return hexOf(peerID, SENDER_ID_SIZE);
 }
 
+static bool setNicknameInternal(const String &name, bool persist) {
+  String next = name;
+  next.trim();
+  if (next.length() == 0) return false;
+  if (next.length() > 32) next = next.substring(0, 32);
+  nickname = next;
+  if (persist) prefs.putString("nick", nickname);
+  return true;
+}
+
 static void privateChatPrintf(uint64_t timestampMs, const char *left, const char *right, const char *content) {
+  if (!serialOutputEnabled) return;
   Serial.printf("[%s] %s -> %s: %s\n", timeOf(timestampMs).c_str(), left, right, content);
 }
 
@@ -1481,6 +1527,10 @@ static void handleNoiseEncrypted(const Packet &packet) {
     }
     privateChatPrintf(packet.timestamp, name.c_str(), "you", content.c_str());
     sendTypedNoisePayloadToPeer(packet.senderID, NOISE_PAYLOAD_DELIVERED, messageID, false);
+    if (privateMessageCallback != nullptr) {
+      BitChatPeer snapshot = makePeerSnapshot(packet.senderID);
+      privateMessageCallback(snapshot, content, messageID);
+    }
   } else if (payloadType == NOISE_PAYLOAD_DELIVERED) {
     String messageID = stringFromBytes(payloadData, payloadLen);
     TrackedPrivateMessage *tracked = findTrackedPrivateMessage(packet.senderID, messageID);
@@ -1504,6 +1554,7 @@ static void handleNoiseEncrypted(const Packet &packet) {
 }
 
 static void upsertPeer(const uint8_t *peerID, const DecodedAnnouncement &ann) {
+  PeerInfo *updatedPeer = nullptr;
   PeerInfo *existing = findPeer(peerID);
   if (existing == nullptr) {
     if (peers.size() >= 32) {
@@ -1516,6 +1567,7 @@ static void upsertPeer(const uint8_t *peerID, const DecodedAnnouncement &ann) {
     peer.nick = ann.nick;
     peer.lastSeenMs = nowMs();
     peers.push_back(peer);
+    updatedPeer = &peers.back();
     systemPrintf("%s joined (%s)\n", ann.nick.c_str(), hexOf(peerID, SENDER_ID_SIZE).c_str());
   } else {
     String oldNick = existing->nick;
@@ -1523,9 +1575,15 @@ static void upsertPeer(const uint8_t *peerID, const DecodedAnnouncement &ann) {
     memcpy(existing->signingKey, ann.signingKey, PUBLIC_KEY_SIZE);
     existing->nick = ann.nick;
     existing->lastSeenMs = nowMs();
+    updatedPeer = existing;
     if (oldNick != ann.nick) {
       systemPrintf("%s is now %s\n", oldNick.c_str(), ann.nick.c_str());
     }
+  }
+
+  if (peerCallback != nullptr && updatedPeer != nullptr) {
+    BitChatPeer snapshot = makePeerSnapshot(*updatedPeer);
+    peerCallback(snapshot);
   }
 }
 
@@ -1567,6 +1625,10 @@ static void handlePublicMessage(const Packet &packet) {
 
   String text((const char *)packet.payload.data(), packet.payload.size());
   chatPrintf(packet.timestamp, peer->nick.c_str(), text.c_str());
+  if (publicMessageCallback != nullptr) {
+    BitChatPeer snapshot = makePeerSnapshot(*peer);
+    publicMessageCallback(snapshot, text);
+  }
 }
 
 static bool decodeRequestSync(const std::vector<uint8_t> &payload, RequestSyncInfo &out) {
@@ -1984,6 +2046,7 @@ static bool parseTimezone(String arg, int16_t &minutesOut) {
 }
 
 static void printBanner() {
+  if (!serialOutputEnabled) return;
   Serial.println();
   Serial.println("bitchat");
   Serial.printf("@%s  %s  peers:%u  /help\n",
@@ -1994,7 +2057,43 @@ static void printBanner() {
   Serial.println();
 }
 
+static void printStartupGuide() {
+  if (!serialOutputEnabled) return;
+  Serial.println();
+  Serial.println("bitchat ESP32 Arduino");
+  Serial.println("BLE mesh chat compatible with current BitChat iOS and Android clients.");
+  Serial.println();
+  Serial.printf("identity: @%s  %s\n", nickname.c_str(), hexOf(myPeerID, SENDER_ID_SIZE).c_str());
+  Serial.printf("service:  %s\n", BITCHAT_SERVICE_UUID);
+  Serial.println();
+  Serial.println("clock requirement");
+  Serial.println("  BitChat packets carry Unix epoch millisecond timestamps.");
+  Serial.println("  Phone clients reject stale or future packets; iOS currently accepts about +/-5 minutes.");
+  Serial.println("  ESP32 boards usually have no battery-backed RTC, so set time after every reset.");
+  Serial.printf("  current ESP32 time: %llu (%s %s, source: %s)\n",
+                (unsigned long long)nowMs(),
+                timeOf(nowMs()).c_str(),
+                timezoneString().c_str(),
+                timeLoadedFromPrefs ? "saved offset" : "firmware compile time");
+  Serial.println();
+  Serial.println("set time now");
+  Serial.println("  /time EPOCH_MS       example: /time 1779274623804");
+  Serial.println("  /time EPOCH_SECONDS  accepted and converted to milliseconds");
+  Serial.println("  get epoch ms on a computer: date +%s000");
+  Serial.println("  get epoch ms in a browser console: Date.now()");
+  Serial.println();
+  Serial.println("quick commands");
+  Serial.println("  TEXT                 send signed public message");
+  Serial.println("  /dm PEER TEXT        send encrypted private message");
+  Serial.println("  /peers               list verified peers");
+  Serial.println("  /sessions            list private Noise sessions");
+  Serial.println("  /debug on|off        protocol diagnostics, default off");
+  Serial.println("  /help                full command list");
+  Serial.println();
+}
+
 static void printStatus() {
+  if (!serialOutputEnabled) return;
   size_t sessionCount = 0;
   size_t establishedCount = 0;
   size_t pendingCount = 0;
@@ -2022,6 +2121,7 @@ static void printStatus() {
                 (unsigned long long)nowMs(),
                 timeOf(nowMs()).c_str(),
                 timezoneString().c_str());
+  Serial.printf("  clock set:   %s\n", timeSetThisBoot ? "yes" : "no, use /time EPOCH_MS after reset");
   Serial.printf("  debug:       %s\n", debugMode ? "on" : "off");
   Serial.printf("  alive:       %s\n", aliveMode ? "on" : "off");
   Serial.printf("  quiet:       %s\n", quietMode ? "on" : "off");
@@ -2030,6 +2130,7 @@ static void printStatus() {
 }
 
 static void printPeers() {
+  if (!serialOutputEnabled) return;
   Serial.printf("[%s] peers: %u\n", timeOf(nowMs()).c_str(), (unsigned)peers.size());
   for (size_t i = 0; i < peers.size(); ++i) {
     const PeerInfo &peer = peers[i];
@@ -2043,6 +2144,7 @@ static void printPeers() {
 }
 
 static void printSessions() {
+  if (!serialOutputEnabled) return;
   Serial.printf("[%s] private sessions\n", timeOf(nowMs()).c_str());
   bool any = false;
   for (size_t i = 0; i < MAX_NOISE_SESSIONS; ++i) {
@@ -2104,6 +2206,7 @@ static void sendRequestSync(PeerInfo *target) {
 }
 
 static void printHelp() {
+  if (!serialOutputEnabled) return;
   Serial.println();
   Serial.println("bitchat serial commands");
   Serial.println("chat");
@@ -2123,6 +2226,7 @@ static void printHelp() {
   Serial.println("  /tz [+HHMM|MINUTES]   set serial display timezone");
   Serial.println("view");
   Serial.println("  /status               show connection and memory state");
+  Serial.println("  /about                show startup description and clock requirement");
   Serial.println("  /view                 redraw header");
   Serial.println("  /clear                clear terminal");
   Serial.println("  /debug [on|off]       show protocol diagnostics");
@@ -2215,9 +2319,7 @@ static void handleSerialLine(String line) {
       errorPrintf("usage: /nick NAME\n");
       return;
     }
-    nickname = args;
-    if (nickname.length() > 32) nickname = nickname.substring(0, 32);
-    prefs.putString("nick", nickname);
+    setNicknameInternal(args, true);
     systemPrintf("nickname set to %s\n", nickname.c_str());
     sendAnnounce(true);
   } else if (command == "time") {
@@ -2233,8 +2335,12 @@ static void handleSerialLine(String line) {
       setEpochMs(t);
       systemPrintf("time set to %llu %s\n", (unsigned long long)nowMs(), timeOf(nowMs()).c_str());
       sendAnnounce(true);
+    } else if (t > 1000000000ULL) {
+      setEpochMs(t * 1000ULL);
+      systemPrintf("time set to %llu %s\n", (unsigned long long)nowMs(), timeOf(nowMs()).c_str());
+      sendAnnounce(true);
     } else {
-      errorPrintf("time must be epoch milliseconds\n");
+      errorPrintf("time must be epoch milliseconds or epoch seconds\n");
     }
   } else if (command == "tz") {
     if (args.length() == 0) {
@@ -2275,6 +2381,8 @@ static void handleSerialLine(String line) {
     Serial.printf("signing public key: %s\n", hexOf(signingPublicKey, PUBLIC_KEY_SIZE).c_str());
   } else if (command == "status") {
     printStatus();
+  } else if (command == "about") {
+    printStartupGuide();
   } else if (command == "view") {
     printBanner();
   } else if (command == "clear" || command == "cls") {
@@ -2332,46 +2440,75 @@ static void handleSerialLine(String line) {
   }
 }
 
-void setup() {
-  Serial.begin(115200);
-  Serial.setTimeout(20);
-  waitForSerialMonitor();
-  delay(200);
-  bootLog("serial ready");
+void BitChatESP32::begin(uint32_t baud) {
+  BitChatConfig config;
+  config.baud = baud;
+  begin(config);
+}
+
+void BitChatESP32::begin(const char *name, uint32_t baud) {
+  BitChatConfig config;
+  config.nickname = name;
+  config.baud = baud;
+  begin(config);
+}
+
+void BitChatESP32::begin(const String &name, uint32_t baud) {
+  BitChatConfig config;
+  config.nickname = name.c_str();
+  config.baud = baud;
+  begin(config);
+}
+
+void BitChatESP32::begin(const BitChatConfig &config) {
+  serialOutputEnabled = config.serialOutput;
+  serialCommandsEnabled = config.serialCommands;
+
+  if (config.serialOutput || config.serialCommands) {
+    Serial.begin(config.baud);
+    Serial.setTimeout(20);
+    if (config.waitForSerial) waitForSerialMonitor();
+    delay(200);
+    bootLog("serial ready");
+  }
 
   bootLog("initializing libsodium");
   if (sodium_init() < 0) {
-    Serial.println("libsodium init failed");
+    if (serialOutputEnabled) Serial.println("libsodium init failed");
     while (true) delay(1000);
   }
 
   bootLog("loading identity");
   loadOrCreateIdentity();
+  if (config.nickname != nullptr && strlen(config.nickname) > 0) {
+    setNicknameInternal(String(config.nickname), config.persistNickname);
+  }
+
   bootLog("creating BLE receive queue");
   rxQueue = xQueueCreate(12, sizeof(RxChunk *));
   if (rxQueue == nullptr) {
-    Serial.println("BLE receive queue allocation failed");
+    if (serialOutputEnabled) Serial.println("BLE receive queue allocation failed");
     while (true) delay(1000);
   }
   bootLog("starting BLE");
   startBle();
   bootLog("BLE started");
 
-  printBanner();
+  if (config.printStartupGuide) printStartupGuide();
   if (debugMode) {
     debugPrintf("service UUID: %s\n", BITCHAT_SERVICE_UUID);
     debugPrintf("time now: %llu\n", (unsigned long long)nowMs());
   }
 
-  sendAnnounce(true);
+  if (config.autoAnnounce) sendAnnounce(true);
   lastAliveAt = millis();
 }
 
-void loop() {
+void BitChatESP32::loop() {
   handleDeferredBleEvents();
   drainRxQueue();
 
-  if (Serial.available()) {
+  if (serialCommandsEnabled && Serial.available()) {
     String line = Serial.readStringUntil('\n');
     handleSerialLine(line);
   }
@@ -2390,4 +2527,136 @@ void loop() {
   sendAnnounce(false);
   printAlive();
   delay(20);
+}
+
+void BitChatESP32::printAbout() {
+  printStartupGuide();
+}
+
+bool BitChatESP32::sendPublicMessage(const String &message) {
+  return ::sendPublicMessage(message);
+}
+
+bool BitChatESP32::sendPrivateMessage(const String &peerSelector, const String &message) {
+  PeerInfo *peer = findPeerBySelector(peerSelector);
+  if (peer == nullptr) {
+    errorPrintf("peer not found: %s\n", peerSelector.c_str());
+    return false;
+  }
+  return sendPrivateMessageToPeer(peer, message);
+}
+
+bool BitChatESP32::sendPrivateMessage(const BitChatPeer &peer, const String &message) {
+  return sendPrivateMessage(peer.id, message);
+}
+
+bool BitChatESP32::replyPrivate(const BitChatPeer &peer, const String &message) {
+  return sendPrivateMessage(peer, message);
+}
+
+bool BitChatESP32::requestSync(const String &peerSelector) {
+  String selector = peerSelector;
+  selector.trim();
+  if (selector.length() == 0 || selector == "all") {
+    sendRequestSync(nullptr);
+    return true;
+  }
+
+  PeerInfo *peer = findPeerBySelector(selector);
+  if (peer == nullptr) {
+    errorPrintf("peer not found: %s\n", selector.c_str());
+    return false;
+  }
+  sendRequestSync(peer);
+  return true;
+}
+
+void BitChatESP32::announce() {
+  sendAnnounce(true);
+}
+
+void BitChatESP32::setNickname(const String &name) {
+  if (!setNicknameInternal(name, true)) return;
+  systemPrintf("nickname set to %s\n", ::nickname.c_str());
+  sendAnnounce(true);
+}
+
+void BitChatESP32::setEpochMs(uint64_t epochMs) {
+  ::setEpochMs(epochMs);
+  systemPrintf("time set to %llu %s\n", (unsigned long long)::nowMs(), timeOf(::nowMs()).c_str());
+  sendAnnounce(true);
+}
+
+void BitChatESP32::setTime(uint64_t epochMs) {
+  setEpochMs(epochMs);
+}
+
+uint64_t BitChatESP32::now() const {
+  return ::nowMs();
+}
+
+bool BitChatESP32::isClockSet() const {
+  return timeSetThisBoot;
+}
+
+bool BitChatESP32::hasTime() const {
+  return isClockSet();
+}
+
+String BitChatESP32::peerId() const {
+  return hexOf(myPeerID, SENDER_ID_SIZE);
+}
+
+String BitChatESP32::nickname() const {
+  return ::nickname;
+}
+
+size_t BitChatESP32::peerCount() const {
+  return peers.size();
+}
+
+bool BitChatESP32::getPeer(size_t index, BitChatPeer &peer) const {
+  if (index >= peers.size()) return false;
+  peer = makePeerSnapshot(peers[index]);
+  return true;
+}
+
+void BitChatESP32::enableSerialOutput(bool enabled) {
+  serialOutputEnabled = enabled;
+}
+
+void BitChatESP32::enableSerialCommands(bool enabled) {
+  serialCommandsEnabled = enabled;
+}
+
+void BitChatESP32::setDebug(bool enabled, bool persist) {
+  debugMode = enabled;
+  if (persist) prefs.putBool("debug", debugMode);
+}
+
+void BitChatESP32::setAlive(bool enabled, bool persist) {
+  aliveMode = enabled;
+  if (persist) prefs.putBool("alive", aliveMode);
+}
+
+void BitChatESP32::setQuiet(bool enabled, bool persist) {
+  quietMode = enabled;
+  if (persist) prefs.putBool("quiet", quietMode);
+}
+
+void BitChatESP32::setTimezoneMinutes(int16_t minutes, bool persist) {
+  timeZoneOffsetMinutes = minutes;
+  if (persist) prefs.putShort("tzMin", timeZoneOffsetMinutes);
+}
+
+void BitChatESP32::onPublicMessage(BitChatPublicMessageCallback callback) {
+  publicMessageCallback = callback;
+}
+
+void BitChatESP32::onPrivateMessage(BitChatPrivateMessageCallback callback) {
+  privateMessageCallback = callback;
+}
+
+void BitChatESP32::onPeer(BitChatPeerCallback callback) {
+  peerCallback = callback;
 }

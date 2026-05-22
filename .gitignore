@@ -1,0 +1,67 @@
+# macOS and editor state
+.DS_Store
+._*
+.Spotlight-V100/
+.Trashes/
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Arduino and ESP32 build output
+build/
+build-*/
+*.bin
+*.elf
+*.hex
+*.map
+*.uf2
+*.eep
+*.lss
+*.lst
+*.sym
+*.core
+core
+core.*
+
+# PlatformIO and local tool caches
+.pio/
+.pioenvs/
+.piolibdeps/
+.cache/
+tmp/
+temp/
+
+# Logs and generated release artifacts
+*.log
+logs/
+dist/
+release/
+releases/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+secrets.*
+Secrets.*
+credentials.*
+Credentials.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+*.provisionprofile
+google-services.json
+GoogleService-Info.plist
+local.properties
+
+# Local upstream reference checkouts used during protocol analysis.
+# The Arduino library itself lives at the repository root.
+/upstream_references/
+/bitchat/
+/bitchat-android/
