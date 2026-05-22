@@ -105,23 +105,23 @@ void loop() {
 
 Use this when you want to install this library without moving files manually.
 
-1. Compress this repository folder as a ZIP file.
-2. Confirm the ZIP contains this layout inside its top-level folder:
+1. Download `BitChat_ESP32-VERSION.zip` from this repository's release page.
+2. In Arduino IDE, choose `Sketch > Include Library > Add .ZIP Library...`.
+3. Select the downloaded `BitChat_ESP32-VERSION.zip` file.
+4. Restart Arduino IDE if the examples do not appear immediately.
+5. Open `File > Examples > BitChat ESP32 > SerialChat`.
+
+Use the `BitChat_ESP32-VERSION.zip` release asset, not GitHub's generated `Source code` ZIP. The release ZIP contains this layout:
 
    ```text
-   library.properties
-   src/BitChatESP32.h
-   examples/SerialChat/SerialChat.ino
-   LICENSE
-   README.md
+   BitChat_ESP32/library.properties
+   BitChat_ESP32/src/BitChatESP32.h
+   BitChat_ESP32/examples/SerialChat/SerialChat.ino
+   BitChat_ESP32/LICENSE
+   BitChat_ESP32/README.md
    ```
 
-3. In Arduino IDE, choose `Sketch > Include Library > Add .ZIP Library...`.
-4. Select the ZIP file.
-5. Restart Arduino IDE if the examples do not appear immediately.
-6. Open `File > Examples > BitChat ESP32 > SerialChat`.
-
-Do not ZIP a parent workspace if it creates an extra folder above this library. Arduino IDE must see `library.properties`, `src/`, and `examples/` inside the installed library folder.
+Arduino IDE must see `library.properties`, `src/`, and `examples/` inside the installed library folder.
 
 ### Arduino IDE Manual Install
 
@@ -185,61 +185,6 @@ Using `arduino-cli` from this workspace:
 ```
 
 Replace `/dev/cu.usbmodemXXXX` with your board port.
-
-## Publishing A Release
-
-You do not need to publish a release for your own boards. ZIP install, manual install, or the local `--libraries .` workflow is enough for development and private use.
-
-Publish a release when you want other users to install a stable ZIP, when you want reproducible product builds, or when you want the library added to Arduino Library Manager.
-
-### Arduino IDE Release ZIP
-
-Yes, you can upload a release ZIP so users can install the library directly in Arduino IDE.
-
-Create the ZIP from this repository root:
-
-```sh
-./scripts/package-release.sh
-```
-
-The script creates:
-
-```text
-dist/BitChat_ESP32-VERSION.zip
-```
-
-Upload that ZIP as a GitHub Release asset. Users install it with:
-
-```text
-Sketch > Include Library > Add .ZIP Library...
-```
-
-The ZIP contains a single top-level `BitChat_ESP32/` folder with `library.properties`, `src/`, `examples/`, `LICENSE`, `NOTICE.md`, `README.md`, and `docs/`. It does not include local upstream reference checkouts, `.git`, build output, or macOS metadata.
-
-For a simple GitHub release:
-
-1. Keep the library root clean: `library.properties`, `src/`, `examples/`, `LICENSE`, `NOTICE.md`, and `README.md`.
-2. Update `version=` in `library.properties` using semantic versioning, for example `0.3.1`.
-3. Compile all examples for the boards you support.
-4. Create a Git tag matching the version, for example `0.3.1`.
-5. Create a GitHub Release from that tag.
-6. Run `./scripts/package-release.sh`.
-7. Attach `dist/BitChat_ESP32-VERSION.zip` to the release.
-
-For Arduino Library Manager:
-
-1. Use a public GitHub repository where `library.properties` is at the repository root.
-2. Keep the standard Arduino layout: `src/`, `examples/`, `library.properties`, `LICENSE`, and `README.md`.
-3. Confirm `library.properties` has a compliant `name`, semantic `version`, `architectures=esp32`, and `includes=BitChatESP32.h`.
-4. Create a release tag for the version. Arduino Library Manager indexes released/tagged versions, not just a branch.
-5. Submit the repository URL to the Arduino Library Registry.
-6. If the registry bot reports an error, fix it, increment the version, tag a new release, and resubmit.
-
-Official references:
-
-- [Arduino library format specification](https://docs.arduino.cc/arduino-cli/library-specification)
-- [Arduino Library Manager submission help](https://support.arduino.cc/hc/en-us/articles/360012175419-How-to-submit-a-third-party-library-to-the-Arduino-Library-Manager)
-- [Arduino Library Registry](https://github.com/arduino/library-registry)
 
 ## Included Examples
 
